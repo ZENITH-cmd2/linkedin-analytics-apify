@@ -2,24 +2,19 @@
 """
 Created on Wed Oct 29 2025
 
-
 LinkedIn post stats scraper: logs in, opens recent shares, scrolls, extracts
 likes/comments/views, computes trend lines and saves CSVs and PNGs.
-
 
 Note: Automating LinkedIn may violate their Terms of Service. Use responsibly.
 """
 
-
 from __future__ import annotations
-
 
 import re
 import sys
 import time
 from dataclasses import dataclass
 from typing import List
-
 
 from bs4 import BeautifulSoup
 from selenium import webdriver
@@ -30,7 +25,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
-
 import numpy as np
 import pandas as pd
 import pyperclip
@@ -39,11 +33,9 @@ import os
 import base64
 
 
-
 # Config flags
 SAVE_FULL_HTML = False
 SAVE_SCREENSHOT = False
-
 
 @dataclass
 class UserInput:
@@ -51,7 +43,6 @@ class UserInput:
     password: str
     profile_slug: str
     num_posts: int
-
 
 
 def prompt_user_input() -> UserInput:
@@ -69,7 +60,6 @@ def prompt_user_input() -> UserInput:
     return UserInput(username_string, password_string, profile_slug, number_of_posts)
 
 
-
 def build_driver(headless: bool = False) -> webdriver.Chrome:
     options = webdriver.ChromeOptions()
     if headless:
@@ -79,7 +69,6 @@ def build_driver(headless: bool = False) -> webdriver.Chrome:
     options.add_argument("--window-size=1366,900")
     service = Service(ChromeDriverManager().install())
     return webdriver.Chrome(service=service, options=options)
-
 
 
 def login_linkedin(driver: webdriver.Chrome, username: str, password: str) -> None:
@@ -94,7 +83,6 @@ def login_linkedin(driver: webdriver.Chrome, username: str, password: str) -> No
     wait.until(lambda d: "/login" not in d.current_url)
 
 
-
 def open_creator_analytics_content(driver: webdriver.Chrome) -> None:
     # Navigate to LinkedIn Creator Analytics - Content tab
     analytics_url = "https://www.linkedin.com/analytics/creator/content/"
@@ -103,7 +91,6 @@ def open_creator_analytics_content(driver: webdriver.Chrome) -> None:
     WebDriverWait(driver, 30).until(lambda d: "analytics/creator/content" in d.current_url)
     # tiny settle time
     time.sleep(0.5)
-
 
 
 def wait_for_analytics_ready(driver: webdriver.Chrome, timeout: int = 20) -> None:
@@ -125,7 +112,6 @@ def wait_for_analytics_ready(driver: webdriver.Chrome, timeout: int = 20) -> Non
     return
 
 
-
 def scroll_for_posts(driver: webdriver.Chrome, num_posts: int, posts_per_scroll: int = 5) -> None:
     number_of_scrolls = -(-num_posts // posts_per_scroll)
     last_height = driver.execute_script("return document.body.scrollHeight")
@@ -136,7 +122,6 @@ def scroll_for_posts(driver: webdriver.Chrome, num_posts: int, posts_per_scroll:
         if new_height == last_height:
             break
         last_height = new_height
-
 
 
 def extract_int_list(pattern_matches: List[str]) -> List[int]:
@@ -150,42 +135,34 @@ def extract_int_list(pattern_matches: List[str]) -> List[int]:
     return result
 
 
-
 def parse_stats_from_html(html: str):
     soup = BeautifulSoup(html, features="lxml")
-
 
     # Attempt 1: old class names (may still work)
     likes_tags = soup.find_all("span", attrs={"class": "v-align-middle social-details-social-counts__reactions-count"})
     comments_tags = soup.find_all("li", attrs={"class": "social-details-social-counts__item social-details-social-counts__comments"})
     views_tags = soup.find_all("span", attrs={"class": "icon-and-text-container t-14 t-black--light t-normal"})
 
-
     likes: List[int] = []
     comments: List[int] = []
     views: List[int] = []
 
-
     number_pattern = re.compile(r"[,0-9]+")
-
 
     for tag in likes_tags:
         matches = number_pattern.findall(str(tag))
         if matches:
             likes.extend(extract_int_list([matches[-1]]))
 
-
     for tag in comments_tags:
         matches = number_pattern.findall(str(tag))
         if matches:
             comments.extend(extract_int_list([matches[-1]]))
 
-
     for tag in views_tags:
         matches = number_pattern.findall(str(tag))
         if matches:
             views.extend(extract_int_list([matches[-1]]))
-
 
     # Fallback heuristic: look for localized labels nearby
     if not likes or not comments or not views:
@@ -201,9 +178,7 @@ def parse_stats_from_html(html: str):
         if not views:
             views = extract_int_list([re.findall(r"[0-9][0-9.,]*", s)[-1] for s in views_guess if re.findall(r"[0-9][0-9.,]*", s)])
 
-
     return likes, comments, views
-
 
 
 def extract_hashtags_from_html(html: str):
@@ -219,7 +194,6 @@ def extract_hashtags_from_html(html: str):
             seen.add(k)
             ordered.append(k)
     return ordered
-
 
 
 def _to_number(value_str: str) -> float:
@@ -252,14 +226,12 @@ def _to_number(value_str: str) -> float:
             return 0.0
 
 
-
 def parse_analytics_metrics(html: str):
     """Parse totals from LinkedIn Creator Analytics Content page.
     Tries IT/EN labels and returns dict {label: number}.
     """
     soup = BeautifulSoup(html, features="lxml")
     text = soup.get_text(" \n", strip=True)
-
 
     # Candidate labels (Italian/English)
     label_patterns = {
@@ -272,11 +244,9 @@ def parse_analytics_metrics(html: str):
         'UniqueViewers': r"(?i)(unique\s*viewers|spettatori\s*unici|visualizzatori\s*unici)",
     }
 
-
     # For each label, search a nearby number (within same line or short window)
     metrics = {}
     lines = [ln for ln in text.split('\n') if ln.strip()]
-
 
     def candidates_from_window(window_lines):
         candidates = []
@@ -299,7 +269,6 @@ def parse_analytics_metrics(html: str):
                     continue
                 candidates.append(num)
         return candidates
-
 
     for label, pattern in label_patterns.items():
         for i, ln in enumerate(lines):
@@ -324,7 +293,6 @@ def parse_analytics_metrics(html: str):
     return metrics
 
 
-
 def copy_full_page_text(driver: webdriver.Chrome) -> str:
     # Focus body and send Ctrl+A, Ctrl+C
     try:
@@ -347,7 +315,6 @@ def copy_full_page_text(driver: webdriver.Chrome) -> str:
         return ""
 
 
-
 def print_page_to_pdf(driver: webdriver.Chrome, out_pdf_path: str) -> bool:
     """Use Chrome DevTools Protocol to print current page to PDF without dialogs."""
     try:
@@ -365,7 +332,6 @@ def print_page_to_pdf(driver: webdriver.Chrome, out_pdf_path: str) -> bool:
         return True
     except Exception:
         return False
-
 
 
 def open_pdf_and_copy_text(driver: webdriver.Chrome, pdf_path: str) -> str:
@@ -386,7 +352,6 @@ def open_pdf_and_copy_text(driver: webdriver.Chrome, pdf_path: str) -> str:
         return txt
     except Exception:
         return ""
-
 
 def extract_numbers_only(html: str):
     # Return list of numeric values parsed from HTML/text (handles K/M/B and %)
@@ -409,7 +374,334 @@ def extract_numbers_only(html: str):
         numbers.append(val)
     return numbers
 
-
-
 def _normalize_lines(text: str):
-    # Split and
+    # Split and trim empty lines
+    return [ln.strip() for ln in (text or "").split('\n') if ln and ln.strip()]
+
+def parse_content_performance(text: str):
+    """Parse 'Rendimento dei contenuti' / 'Content performance' summary.
+    Returns { impressionsTotal, changePercent } if found.
+    """
+    lines = _normalize_lines(text)
+    out = {}
+    for i, ln in enumerate(lines):
+        if re.search(r"(?i)rendimento\s+dei\s+contenuti|content\s+performance", ln):
+            window = lines[i:i+8]
+            # find first number and the word Impressioni/Impressions near it
+            impressions = None
+            change = None
+            for w in window:
+                if re.search(r"(?i)impressioni|impressions", w):
+                    mnum = re.search(r"([0-9][0-9\.,\u202f]*\s*[kmbKMB]?)", w)
+                    if mnum:
+                        impressions = _to_number(mnum.group(1))
+                if change is None:
+                    # es: "16.900% rispetto ai precedenti 7 giorni" oppure "+12% vs previous 7 days"
+                    mchg = re.search(r"([+\-]?[0-9][0-9\.,\u202f]*\s*%)", w)
+                    if mchg:
+                        change = mchg.group(1)
+            if impressions is None:
+                # try next line for the number
+                if len(window) > 1:
+                    mnum2 = re.search(r"([0-9][0-9\.,\u202f]*\s*[kmbKMB]?)", window[1])
+                    if mnum2:
+                        impressions = _to_number(mnum2.group(1))
+            if impressions is not None:
+                out["impressionsTotal"] = int(impressions) if float(impressions).is_integer() else float(impressions)
+            if change:
+                # strip % and convert
+                pct_raw = change.replace('%', '').strip()
+                try:
+                    out["changePercent7d"] = float(pct_raw.replace(',', '.'))
+                except Exception:
+                    out["changePercent7d"] = None
+            break
+    return out
+
+def parse_posts_blocks(text: str):
+    """Parse per-post metrics from Analytics text. Returns list of posts with
+    {relativeTime, impressions, likes, comments, textSnippet}.
+    """
+    lines = _normalize_lines(text)
+    posts = []
+    for i, ln in enumerate(lines):
+        if re.search(r"(?i)ha\s+pubblicato\s+questo\s+post|published\s+this\s+post", ln):
+            rel = None
+            mrel = re.search(r"\u2022\s*([^•]+)$", ln)
+            if mrel:
+                rel = mrel.group(1).strip()
+            # search within next ~12 lines for metrics
+            window = lines[i:i+12]
+            impressions = None
+            likes = None
+            comments = None
+            snippet = None
+            for w in window:
+                if impressions is None and re.search(r"(?i)impressioni|impressions", w):
+                    mnum = re.search(r"([0-9][0-9\.,\u202f]*\s*[kmbKMB]?)", w)
+                    if mnum:
+                        impressions = _to_number(mnum.group(1))
+                if likes is None and re.search(r"(?i)like|mi\s+piace|reactions?", w):
+                    mnum = re.search(r"\b([0-9][0-9\.,\u202f]*)\b", w)
+                    if mnum:
+                        likes = _to_number(mnum.group(1))
+                if comments is None and re.search(r"(?i)commenti|comments", w):
+                    mnum = re.search(r"\b([0-9][0-9\.,\u202f]*)\b", w)
+                    if mnum:
+                        comments = _to_number(mnum.group(1))
+            # try to grab a text snippet around the post
+            if i+1 < len(lines):
+                snippet = (lines[i+1][:180] + '…') if len(lines[i+1]) > 180 else lines[i+1]
+            posts.append({
+                "relativeTime": rel,
+                "impressions": int(impressions) if impressions is not None and float(impressions).is_integer() else (float(impressions) if impressions is not None else None),
+                "likes": int(likes) if likes is not None and float(likes).is_integer() else (float(likes) if likes is not None else None),
+                "comments": int(comments) if comments is not None and float(comments).is_integer() else (float(comments) if comments is not None else None),
+                "textSnippet": snippet,
+            })
+    return posts
+
+
+def parse_posts_from_analytics_html(html: str):
+    """Parse per-post metrics from Analytics HTML structure.
+    Looks for blocks like:
+    <div class="member-analytics-addon__cta-item-with-secondary-metric">
+      <span class="member-analytics-addon__cta-item-with-secondary-list-item-title">358</span>
+      <div class="member-analytics-addon__cta-item-with-secondary-list-item-text">Impressioni</div>
+    </div>
+    Returns list of dicts like { 'impressions': int }.
+    """
+    soup = BeautifulSoup(html or "", features="lxml")
+    blocks = soup.select("div.member-analytics-addon__cta-item-with-secondary-metric")
+    posts = []
+    for blk in blocks:
+        title_el = blk.select_one(".member-analytics-addon__cta-item-with-secondary-list-item-title")
+        label_el = blk.select_one(".member-analytics-addon__cta-item-with-secondary-list-item-text")
+        if not title_el or not label_el:
+            continue
+        label_txt = (label_el.get_text(strip=True) or "").lower()
+        # Only handle Impressioni/Impressions for now
+        if not re.search(r"(?i)impressioni|impressions", label_txt):
+            continue
+        title_txt = title_el.get_text(" ", strip=True) if title_el else ""
+        mnum = re.search(r"([0-9][0-9\.,\u202f]*\s*[kmbKMB]?)", title_txt)
+        if not mnum:
+            continue
+        val = _to_number(mnum.group(1))
+        if val and val < 1_000_000_000:
+            posts.append({
+                "impressions": int(val) if float(val).is_integer() else float(val)
+            })
+    return posts
+
+def compute_and_return(profile_slug: str, num_posts: int, likes: List[int], comments: List[int], views: List[int]):
+    # Reverse lists so earliest -> latest
+    likes = list(reversed(likes))
+    comments = list(reversed(comments))
+    views = list(reversed(views))
+
+    likes_df = pd.DataFrame(likes, columns=["Likes"])[:num_posts]
+    comments_df = pd.DataFrame(comments, columns=["Comments"])[:num_posts]
+    views_df = pd.DataFrame(views, columns=["Views"])[:num_posts]
+
+    # Remove outliers (> 3 std dev from median)
+    likes_no = likes_df.copy()
+    comments_no = comments_df.copy()
+    views_no = views_df.copy()
+
+    likes_no = likes_no[np.abs(likes_no - likes_no.median()) <= (3 * likes_no.std())]
+    comments_no = comments_no[np.abs(comments_no - comments_no.median()) <= (3 * comments_no.std())]
+    views_no = views_no[np.abs(views_no - views_no.median()) <= (3 * views_no.std())]
+
+    # Avoid chained assignment warnings
+    likes_no.loc[:, "Likes"] = likes_no["Likes"].fillna(likes_no["Likes"].median())
+    comments_no.loc[:, "Comments"] = comments_no["Comments"].fillna(comments_no["Comments"].median())
+    views_no.loc[:, "Views"] = views_no["Views"].fillna(views_no["Views"].median())
+
+    def _clean_series(series: pd.Series) -> pd.Series:
+        s = pd.to_numeric(series, errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
+        return s
+
+    def trend_and_plot(series: pd.Series, title: str, y_label: str, out_png: str):
+        s = _clean_series(series)
+        print("**************************")
+        print(f"***** {y_label.upper()} *****")
+        print("**************************")
+        if len(s) < 2 or s.nunique() == 1:
+            print("Not enough valid data points for trend line. Plotting raw series only.")
+            # Not enough data for trend; return minimal stats
+            return {"slope": None, "nrmse": None, "series": s.tolist() if len(s) else []}
+
+        x = np.arange(len(s))
+        try:
+            coeffs, residuals, *_ = np.polyfit(x, s.values.flatten(), 1, full=True)
+            slope = coeffs[0]
+            mse = (residuals[0] / len(s)) if len(residuals) else 0.0
+            denom = (s.max() - s.min()) if (s.max() - s.min()) != 0 else 1
+            nrmse = (np.sqrt(mse)) / denom
+            return {"slope": float(slope), "nrmse": float(nrmse), "series": s.tolist(), "trend": [float(slope * xi + coeffs[1]) for xi in x]}
+        except Exception as e:
+            return {"slope": None, "nrmse": None, "series": s.tolist()}
+
+    # Simple raw lists output only
+    return {
+        "likes": likes_no["Likes"].dropna().astype(int).tolist(),
+        "comments": comments_no["Comments"].dropna().astype(int).tolist(),
+        "views": views_no["Views"].dropna().astype(int).tolist(),
+    }
+
+
+def main():
+    user_input = prompt_user_input()
+    driver = build_driver(headless=False)
+    try:
+        login_linkedin(driver, user_input.username, user_input.password)
+        open_creator_analytics_content(driver)
+        # Optionally scroll to load more analytics cards/entries
+        scroll_for_posts(driver, user_input.num_posts)
+        # Ensure the analytics page is fully loaded before copying
+        wait_for_analytics_ready(driver)
+        # NON navigare altrove: cattura subito l'HTML completo (documento + iframes)
+        full_text = ""
+        if SAVE_SCREENSHOT:
+            try:
+                driver.save_screenshot("analytics.png")
+            except Exception:
+                pass
+        # Get HTML (document + all iframes) e restituisci subito l'intero contenuto
+        def _get_outer_html(drv):
+            try:
+                return drv.execute_script("return document.documentElement.outerHTML;")
+            except Exception:
+                return drv.page_source
+
+        full_parts = []
+        # Main document
+        main_html = _get_outer_html(driver) or ""
+        full_parts.append("<!-- MAIN DOCUMENT START -->\n" + main_html + "\n<!-- MAIN DOCUMENT END -->")
+        # Iframes
+        from selenium.common.exceptions import NoSuchFrameException
+        frames = driver.find_elements(By.TAG_NAME, "iframe")
+        for idx, fr in enumerate(frames):
+            try:
+                driver.switch_to.frame(fr)
+                frame_html = _get_outer_html(driver) or ""
+                full_parts.append(f"<!-- IFRAME {idx} START -->\n" + frame_html + f"\n<!-- IFRAME {idx} END -->")
+            except NoSuchFrameException:
+                continue
+            except Exception:
+                continue
+            finally:
+                driver.switch_to.default_content()
+
+        combined_html = "\n\n".join(full_parts)
+        try:
+            with open("analytics_page.html", "w", encoding="utf-8") as f:
+                f.write(combined_html)
+        except Exception:
+            pass
+        try:
+            print(combined_html)
+        except Exception:
+            print(combined_html.encode('utf-8', errors='ignore').decode('utf-8', errors='ignore'))
+        return
+        # Save focused snippet for per-post analytics blocks
+        try:
+            soup_for_save = BeautifulSoup(html or "", features="lxml")
+            blocks_for_save = soup_for_save.select("div.member-analytics-addon__cta-item-with-secondary-metric")
+            if blocks_for_save:
+                snippet_html = "\n".join(str(b) for b in blocks_for_save)
+                with open("analytics_posts_blocks.html", "w", encoding="utf-8") as f:
+                    f.write("<html><body>\n" + snippet_html + "\n</body></html>")
+        except Exception:
+            pass
+        analytics = parse_analytics_metrics(html)
+        if not analytics and full_text:
+            analytics = parse_content_performance(full_text)
+
+        impressions = analytics.get('Impressions') if analytics else None
+        unique_viewers = analytics.get('UniqueViewers') if analytics else None
+
+        # Prefer HTML-structured per-post impressions sum if page-total is missing or implausible
+        html_posts_for_sum = parse_posts_from_analytics_html(html)
+        sum_post_impressions = None
+        if html_posts_for_sum:
+            try:
+                sum_post_impressions = sum(int(p.get('impressions') or 0) for p in html_posts_for_sum)
+            except Exception:
+                sum_post_impressions = None
+        # Prefer the computed sum when available; still report the page total separately
+        safe_impressions = float(sum_post_impressions) if sum_post_impressions is not None else impressions
+
+        print("\n=================== Riepilogo LinkedIn Analytics ===================")
+        print(f"Impressioni totali (usate): {int(safe_impressions) if safe_impressions else 'ND'}")
+        if impressions is not None:
+            print(f"Impressioni totali (pagina): {int(impressions) if float(impressions).is_integer() else impressions}")
+        if sum_post_impressions is not None:
+            print(f"Impressioni totali (somma per post): {sum_post_impressions}")
+        print(f"Utenti raggiunti (spettatori unici): {int(unique_viewers) if unique_viewers else 'ND'}")
+        print("====================================================================\n")
+        print("File salvati: analytics.pdf, analytics_text_from_pdf.txt, analytics_posts_blocks.html (se presenti blocchi)")
+
+        try:
+            # CSV minimale richiesto
+            df = pd.DataFrame([{ 'Impressioni': safe_impressions, 'UtentiRaggiunti': unique_viewers }])
+            df.to_csv("analytics_impressioni_utenti.csv", index=False, encoding="utf-8")
+
+            # CSV esteso con tutte le metriche trovate
+            extended_row = {
+                'Impressions': safe_impressions,
+                'UniqueViewers': analytics.get('UniqueViewers') if analytics else None,
+                'Reactions': analytics.get('Reactions') if analytics else None,
+                'Comments': analytics.get('Comments') if analytics else None,
+                'Reposts': analytics.get('Reposts') if analytics else None,
+                'Follows': analytics.get('Follows') if analytics else None,
+                'EngagementRate': analytics.get('EngagementRate') if analytics else None,
+            }
+            pd.DataFrame([extended_row]).to_csv("analytics_totals.csv", index=False, encoding="utf-8")
+        except Exception:
+            pass
+
+        # If you still want the old verbose section below, keep it; otherwise return here
+        # return
+        hashtags = extract_hashtags_from_html(html)
+
+        if analytics:
+            # Prefer analytics metrics if available
+            print("\n================ LinkedIn Analytics - Riepilogo ================")
+            print(f"Profilo: {user_input.profile_slug}")
+            print("\nMetriche totali (pagina Analytics):")
+            for k, v in analytics.items():
+                print(f"- {k}: {int(v) if v.is_integer() else round(v, 2)}")
+            # Per-post details (giornaliero/relativo)
+            # Prefer HTML-structured per-post impressions when available
+            html_posts = parse_posts_from_analytics_html(html)
+            if html_posts:
+                print("\nDettagli post (impressioni per post):")
+                for idx, p in enumerate(html_posts[:50], start=1):
+                    print(f"• Post {idx}: Impressioni: {p.get('impressions')}")
+            elif full_text:
+                posts = parse_posts_blocks(full_text)
+                if posts:
+                    print("\nDettagli post (tempo relativo, impressioni, likes, commenti):")
+                    for p in posts[:20]:
+                        rt = p.get('relativeTime') or '-'
+                        im = p.get('impressions')
+                        lk = p.get('likes')
+                        cm = p.get('comments')
+                        print(f"• {rt} | Impressioni: {im} | Likes: {lk} | Commenti: {cm}")
+            if hashtags:
+                print("\nHashtag trovati:")
+                print(", ".join(hashtags[:20]))
+            print("===============================================================\n")
+        else:
+            # Fallback disabilitato quando stampiamo HTML e ritorniamo prima
+            pass
+    finally:
+        driver.quit()
+
+
+if __name__ == "__main__":
+    main()
+
+
